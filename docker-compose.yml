@@ -1,0 +1,19 @@
+services:
+
+  db:
+    image: postgres:16
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    restart: unless-stopped
+    volumes:
+      - ./db:/docker-entrypoint-initdb.d
+    environment:
+      POSTGRES_PASSWORD: password123
+      POSTGRES_USER: stockflowuser
+      POSTGRES_DB: stockflowdb
+
+  adminer:
+    image: adminer
+    restart: unless-stopped
+    ports:
+      - 5050:8080
