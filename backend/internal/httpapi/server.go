@@ -3,9 +3,11 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/dicozaalex/stockflow/backend/internal/store"
 )
@@ -14,14 +16,19 @@ type Server struct {
 	store *store.Store
 }
 
+func NewServer(st *store.Store) *Server {
+	return &Server{store: st}
+}
+
 type adjustStockRequest struct {
 	Type string `json:"type"`
 	Qty  int    `json:"qty"`
 	Note string `json:"note"`
 }
 
-func NewServer(st *store.Store) *Server {
-	return &Server{store: st}
+type createOrderRequest struct {
+	Customer string                 `json:"customer"`
+	Items    []store.OrderItemInput `json:"items"`
 }
 
 // routes
@@ -31,6 +38,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/products", s.listProducts)
 	mux.HandleFunc("POST /api/products/{id}/stock", s.adjustStock)
 	mux.HandleFunc("GET /api/products/{id}/movements", s.listMovements)
+	mux.HandleFunc("POST /api/orders", s.createOrder)
 	return mux
 }
 
@@ -136,6 +144,68 @@ func (s *Server) listMovements(w http.ResponseWriter, r *http.Request) {
 	}
 
 	WriteJSON(w, http.StatusOK, map[string]any{"data": movements})
+}
+
+func (s *Server) createOrder(w http.ResponseWriter, r *http.Request) {
+	var req createOrderRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		WriteError(w, http.StatusBadRequest, "INVALID_JSON", "request body must be valid JSON", nil)
+		return
+	}
+
+	var details []string
+
+	if strings.TrimSpace(req.Customer) == "" {
+		details = append(details, "customer is required")
+	}
+	if len(req.Items) == 0 {
+		details = append(details, "items must not be empty")
+	}
+
+	seen := make(map[string]bool)
+	for i, it := range req.Items {
+		if it.SKU == "" {
+			details = append(details, fmt.Sprintf("items[%d].sku is required", i))
+		} else if seen[it.SKU] {
+			details = append(details, fmt.Sprintf("items[%d].sku %q is duplicated", i, it.SKU))
+		}
+		seen[it.SKU] = true
+
+		if it.Qty <= 0 {
+			details = append(details, fmt.Sprintf("items[%d].qty must be greater than 0", i))
+		}
+	}
+
+	if len(details) > 0 {
+		WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid order", map[string]any{"details": details})
+		return
+	}
+
+	order, err := s.store.CreateOrder(r.Context(), req.Customer, req.Items)
+	if err != nil {
+		var unknown *store.UnknownSKUError
+		var inactive *store.InactiveProductError
+		var insuff *store.InsufficientStockError
+
+		switch {
+		case errors.As(err, &unknown):
+			WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid order",
+				map[string]any{"details": []string{"unknown sku: " + strings.Join(unknown.SKUs, ", ")}})
+		case errors.As(err, &inactive):
+			WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid order",
+				map[string]any{"details": []string{"inactive product: " + strings.Join(inactive.SKUs, ", ")}})
+		case errors.As(err, &insuff):
+			WriteError(w, http.StatusConflict, "INSUFFICIENT_STOCK", "insufficient stock",
+				map[string]any{"sku": insuff.SKU, "available": insuff.Available})
+		default:
+			log.Printf("create order: %v", err)
+			WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "internal server error", nil)
+		}
+		return
+	}
+
+	WriteJSON(w, http.StatusCreated, order)
+
 }
 
 func intParam(raw string, def int) (int, error) {
