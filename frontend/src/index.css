@@ -1,0 +1,12 @@
+body { font-family: system-ui, sans-serif; margin: 2rem; color: #222; }
+main { max-width: 1000px; }
+.toolbar { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+table { border-collapse: collapse; width: 100%; }
+th, td { border-bottom: 1px solid #ddd; padding: 0.5rem; text-align: left; }
+.badge { padding: 0.1rem 0.5rem; border-radius: 999px; font-size: 0.85rem; }
+.badge.active { background: #dcfce7; color: #166534; }
+.badge.inactive { background: #e5e7eb; color: #374151; }
+.error { color: #b91c1c; }
+.adjust { margin-top: 1.5rem; padding: 1rem; border: 1px solid #ddd; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.adjust h2 { width: 100%; margin: 0 0 0.5rem; font-size: 1rem; }
+.adjust .error { width: 100%; margin: 0; }
